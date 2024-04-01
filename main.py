@@ -1,11 +1,10 @@
 import requests
 import time
-import json
-import hashlib
-import hmac
-from urllib.parse import urlencode
 from dotenv import load_dotenv
 import os
+import pandas as pd
+import matplotlib.pyplot as plt  # 確保在這裡導入 matplotlib.pyplot
+from datetime import datetime, timedelta
 
 # 載入環境變數
 load_dotenv()
@@ -61,40 +60,108 @@ def make_private_request(method, endpoint, params=None, data=None):
         response = requests.get(url, headers=headers, params=params)
     elif method == 'POST':
         headers['Content-Type'] = 'application/json'
-        response = requests.post(url, headers=headers, json=data, params=params )
+        response = requests.post(url, headers=headers, json=data, params=params)
     elif method == 'DELETE':
         response = requests.delete(url, headers=headers, json=data, params=params)
     else:
         raise ValueError(f"不支援的 HTTP 方法: {method}")
 
-    # 打印生成的簽名、消息和服務器時間戳
-    # print(f"生成的簽名: {headers['PIONEX-SIGNATURE']}")
-    # print(f"生成的消息: {method.upper()}{url}?{urlencode(sorted(params.items()))}")
-    # print(f"服務器時間戳: {response.json().get('timestamp')}")
-
     return response.json()
 
-# 定義發送公共請求的函數
-endpoint = "/api/v1/trade/order"
+# 計算布林帶
+def calculate_bollinger_bands(data, window=20, num_std=2):
+    """
+    計算布林帶指標
 
-# 發送 POST 請求
-response = make_private_request('GET', '/api/v1/trade/allOrders', params={'symbol': 'BTC_USDT', 'limit': 1})
+    參數:
+    - data: 包含 'Date' 和 'close' 欄位的 DataFrame。
+    - window: 移動平均和標準差計算的窗口大小。
+    - num_std: 上下軌道的標準差數量。
 
-# 打印請求結果
-# print(response)
+    返回值:
+    - 添加了 'Middle Band', 'Upper Band', 和 'Lower Band' 欄位的 DataFrame。
+    """
+    data['close'] = pd.to_numeric(data['close'])
 
-# 定義獲取當前價格的函數
-def get_current_price(symbol):
-    endpoint = 'https://api.pionex.com/api/v1/market/tickers'
-    params = {'symbol': symbol}
+    # 計算中軌
+    data['Middle Band'] = data['close'].rolling(window=window).mean()
+
+    # 計算標準差
+    data['Std Dev'] = data['close'].rolling(window=window).std()
+
+    # 計算上下軌道
+    data['Upper Band'] = data['Middle Band'] + (num_std * data['Std Dev'])
+    data['Lower Band'] = data['Middle Band'] - (num_std * data['Std Dev'])
+
+    return data
+
+#獲取K線數據
+def get_recent_klines(symbol, interval):
+    # 計算現在的時間和 30 天前的時間
+    end_time = datetime.now()
+    start_time = end_time - timedelta(days=30)
+
+    # 將時間轉換為毫秒級的時間戳
+    start_time_ms = int(start_time.timestamp() * 1000)
+    end_time_ms = int(end_time.timestamp() * 1000)
+
+
+    endpoint = 'https://api.pionex.com/api/v1/market/klines'
+    params = {
+        'symbol': symbol,
+        'interval': interval,
+        'startTime': start_time_ms,
+        'endTime': end_time_ms
+    }
+    # 發送 GET 請求
     response = requests.get(endpoint, params=params)
+    # 檢查響應狀態碼
     if response.status_code == 200:
+        # 解析 JSON 響應
         data = response.json()
-        tickers = data.get('data', {}).get('tickers', [])
-        for ticker in tickers:
-            if ticker['symbol'] == symbol:
-                return ticker.get('close')
-    return None
+        # 獲取 K 線數據
+        klines = data.get('data', {}).get('klines', [])
+        # 將 K 線數據轉換為 DataFrame
+        df = pd.DataFrame(klines, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
+        df['time'] = pd.to_datetime(df['time'], unit='ms')
+        return df
 
-current_price = get_current_price('BTC_USDT')
-print(f"BTC:{current_price}")
+# 繪製布林帶圖表
+def plot_bollinger_bands(data):
+    """
+    繪製布林帶圖表
+
+    參數:
+    - data: 包含 'Date', 'Close', 'Middle Band', 'Upper Band', 'Lower Band' 欄位的 DataFrame。
+    """
+    plt.figure(figsize=(12, 6))
+    plt.plot(data['time'], data['close'], label='Bitcoin Price', color='blue')
+    plt.plot(data['time'], data['Middle Band'], label='Middle Band', color='black')
+    plt.plot(data['time'], data['Upper Band'], label='Upper Band', color='red', linestyle='--')
+    plt.plot(data['time'], data['Lower Band'], label='Lower Band', color='green', linestyle='--')
+    plt.title('Bitcoin Bollinger Bands')
+    plt.xlabel('Date')
+    plt.ylabel('Price')
+    plt.legend()
+    plt.show()
+    print(data['close'].describe())
+    print(data.isnull().sum())
+    print(data.describe())
+
+# 獲取最近 30 天的比特幣 K 線數據，計算布林帶，並繪製圖表
+def main():
+    symbol = 'BTC_USDT'  # 比特幣/美元交易對
+    interval = '1D'  # 日K線
+
+    # 獲取 K 線數據
+    klines_df = get_recent_klines(symbol, interval)
+
+    # 計算布林帶
+    bollinger_bands_df = calculate_bollinger_bands(klines_df)
+
+    # 繪製布林帶圖表
+    plot_bollinger_bands(bollinger_bands_df)
+
+if __name__ == "__main__":
+    main()
+    
