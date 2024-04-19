@@ -2,26 +2,26 @@ import requests
 import matplotlib.pyplot as plt
 import pandas as pd
 from datetime import datetime, timedelta
+from tqdm import tqdm
 
 def get_recent_klines(symbol, interval):
-    # 初始化儲存K線數據的列表
     all_klines = []
-    # 設置查詢的結束時間為當前時間
     end_time = datetime.now()
-    # 設置開始時間為20天前
     start_time = end_time - timedelta(days=20)
-    # 轉換時間為毫秒單位，以符合API要求
     end_time_ms = int(end_time.timestamp() * 1000)
     start_time_ms = int(start_time.timestamp() * 1000)
-    # API端點URL
     endpoint = 'https://api.pionex.com/api/v1/market/klines'
-    # 使用迴圈來逐步抓取所有所需的K線數據
+    params = {
+        'symbol': symbol,
+        'interval': interval,
+        'endTime': end_time_ms
+    }
+
+    # 預估總請求次數，此處假設每次請求大概回傳一天的數據，故設為20（20天）
+    total_requests = 20
+    progress_bar = tqdm(total=total_requests, desc="正在抓取數據")
+
     while True:
-        params = {
-            'symbol': symbol,
-            'interval': interval,
-            'endTime': end_time_ms
-        }
         response = requests.get(endpoint, params=params, timeout=300)
         if response.status_code == 200:
             data = response.json()
@@ -32,11 +32,18 @@ def get_recent_klines(symbol, interval):
             all_klines.extend(klines)
             last_time_ms = int(klines[-1]['time'])
             end_time_ms = last_time_ms - 1
+            params['endTime'] = end_time_ms  # 更新結束時間
+            
+            progress_bar.update(1)  # 更新進度條
+
             if last_time_ms <= start_time_ms:
                 break
         else:
             print(f"請求失敗，狀態碼：{response.status_code}")
             break
+
+    progress_bar.close()  # 完成後關閉進度條
+
     if all_klines:
         df = pd.DataFrame(all_klines)
         df = df.iloc[::-1].reset_index(drop=True)
