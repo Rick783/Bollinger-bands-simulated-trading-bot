@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from tqdm import tqdm
 
 def get_recent_klines(symbol, interval):
+    # 獲取最近的K線數據
     all_klines = []
     end_time = datetime.now()
     start_time = end_time - timedelta(days=20)
