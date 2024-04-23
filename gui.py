@@ -52,6 +52,8 @@ win.maxsize(1024, 768)
 win.minsize(400, 200)
 
 win.iconbitmap("app.ico")
+icon = tk.PhotoImage(file='app.png')  # 例如 'icon.png'
+win.tk.call('wm', 'iconphoto', win._w, icon)
 
 center_frame = tk.Frame(win)
 center_frame.pack(pady=20)
