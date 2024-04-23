@@ -143,6 +143,3 @@ def main(cbb_value, update_progress=None, plot_callback=None):
     portfolio = simulate_bollinger_strategy(bollinger_bands_df, signals)
     
     return portfolio
-
-if __name__ == "__main__":
-    main()
