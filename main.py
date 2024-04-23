@@ -1,11 +1,9 @@
 import requests
-import matplotlib.pyplot as plt
 import pandas as pd
 from datetime import datetime, timedelta
-from tqdm import tqdm
+from requests.exceptions import RequestException
 
-def get_recent_klines(symbol, interval):
-    # 獲取最近的K線數據
+def get_recent_klines(symbol, interval, update_progress, total_requests):
     all_klines = []
     end_time = datetime.now()
     start_time = end_time - timedelta(days=20)
@@ -18,32 +16,31 @@ def get_recent_klines(symbol, interval):
         'endTime': end_time_ms
     }
 
-    # 預估總請求次數，此處假設每次請求大概回傳一天的數據，故設為20（20天）
-    total_requests = 20
-    progress_bar = tqdm(total=total_requests, desc="正在抓取數據")
-
-    while True:
-        response = requests.get(endpoint, params=params, timeout=300)
-        if response.status_code == 200:
-            data = response.json()
-            klines = data.get('data', {}).get('klines', [])
-            if not klines:
-                print("未抓取到更多數據。")
+    for request_count in range(total_requests):
+        try:
+            response = requests.get(endpoint, params=params, timeout=300)
+            if response.status_code == 200:
+                data = response.json()
+                klines = data.get('data', {}).get('klines', [])
+                if not klines:
+                    print(f"No more data available after {request_count} requests.")
+                    break
+                all_klines.extend(klines)
+                last_time_ms = int(klines[-1]['time'])
+                end_time_ms = last_time_ms - 1
+                params['endTime'] = end_time_ms
+                update_progress(request_count + 1)
+            else:
+                print(f"Request failed with status code {response.status_code}: {response.text}")
                 break
-            all_klines.extend(klines)
-            last_time_ms = int(klines[-1]['time'])
-            end_time_ms = last_time_ms - 1
-            params['endTime'] = end_time_ms  # 更新結束時間
-            
-            progress_bar.update(1)  # 更新進度條
 
             if last_time_ms <= start_time_ms:
+                print("Reached the start of the data range.")
                 break
-        else:
-            print(f"請求失敗，狀態碼：{response.status_code}")
-            break
 
-    progress_bar.close()  # 完成後關閉進度條
+        except RequestException as e:
+            print(f"An error occurred: {e}")
+            break
 
     if all_klines:
         df = pd.DataFrame(all_klines)
@@ -51,11 +48,11 @@ def get_recent_klines(symbol, interval):
         df['time'] = pd.to_datetime(df['time'], unit='ms')
         df = df[df['time'] >= pd.to_datetime(start_time_ms, unit='ms')]
         for column in ['open', 'close', 'high', 'low', 'volume']:
-            df[column] = pd.to_numeric(df[column].str.replace(',', ''), errors='coerce')
+            df[column] = pd.to_numeric(df[column], errors='coerce')
         return df
     else:
         return pd.DataFrame()
-
+    
 def validate_data(df):
     # 檢查缺失值
     missing_values = df.isnull().sum()
@@ -81,19 +78,6 @@ def calculate_bollinger_bands(data, window=20, num_std=2):
     data['Upper Band'] = data['Middle Band'] + (data['Std Dev'] * num_std)
     data['Lower Band'] = data['Middle Band'] - (data['Std Dev'] * num_std)
     return data
-
-def plot_bollinger_bands(data):
-    # 繪製布林帶圖表
-    plt.figure(figsize=(12, 6))
-    plt.plot(data['time'], data['close'], label='price', color='blue')
-    plt.plot(data['time'], data['Middle Band'], label='mid', color='black')
-    plt.plot(data['time'], data['Upper Band'], label='up', color='red', linestyle='--')
-    plt.plot(data['time'], data['Lower Band'], label='low', color='green', linestyle='--')
-    plt.title('bollinger bands')
-    plt.xlabel('date')
-    plt.ylabel('price')
-    plt.legend()
-    plt.show()
 
 def bollinger_strategy(bollinger_bands_df):
     # 布林帶交易策略
@@ -140,20 +124,23 @@ def simulate_bollinger_strategy(bollinger_bands_df, signals, initial_capital=100
         portfolio.loc[index, 'total'] = portfolio.loc[index, 'cash'] + portfolio.loc[index, 'holdings']
     return portfolio
 
-def main():
-    # 主函數
+def main(cbb_value, update_progress=None, plot_callback=None):
     symbol = 'BTC_USDT'
-    interval = '15M'
-    klines_df = get_recent_klines(symbol, interval)
+    interval = cbb_value
+    total_requests = 20
+    klines_df = get_recent_klines(symbol, interval, update_progress, total_requests)
+
     if klines_df.empty:
         print("未抓取到數據。")
         return
     bollinger_bands_df = calculate_bollinger_bands(klines_df)
     bollinger_bands_df = bollinger_bands_df.reset_index(drop=True)
-    plot_bollinger_bands(bollinger_bands_df)
+    if plot_callback:
+        plot_callback(bollinger_bands_df) #通過回調函數傳遞繪製圖表數據
     signals = bollinger_strategy(bollinger_bands_df)
     portfolio = simulate_bollinger_strategy(bollinger_bands_df, signals)
-    print(portfolio.tail(5))
+    
+    return portfolio
 
 if __name__ == "__main__":
     main()
