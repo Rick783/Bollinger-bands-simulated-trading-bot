@@ -18,7 +18,7 @@ pip install requirements.txt
 ## 使用方法
 
 1. 確認Python環境已安裝上述庫。
-2. 需要視覺視窗或調整K線週期請運行 `gui.py` 文件。
+2. 請運行 `gui.py` 文件。
 3. 在命令行中運行該腳本：
 
 ```bash
