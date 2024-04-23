@@ -125,6 +125,8 @@ def simulate_bollinger_strategy(bollinger_bands_df, signals, initial_capital=100
     return portfolio
 
 def main(cbb_value, update_progress=None, plot_callback=None):
+    if cbb_value not in ["1M","5M","15M","30M","60M","4H","8H","12H","1D"]:
+        cbb_value = '15M'
     symbol = 'BTC_USDT'
     interval = cbb_value
     total_requests = 20
