@@ -4,9 +4,17 @@ from datetime import datetime, timedelta
 from requests.exceptions import RequestException
 
 def get_recent_klines(symbol, interval, update_progress, total_requests):
+    """
+    從Pionex API獲取最近的K線數據。
+    :param symbol: 交易對，如BTC_USDT
+    :param interval: K線間隔，如'1M', '5M', '15M'等
+    :param update_progress: 進度更新回調函數
+    :param total_requests: 請求的總次數
+    :return: 包含K線數據的DataFrame
+    """
     all_klines = []
     end_time = datetime.now()
-    start_time = end_time - timedelta(days=20)
+    start_time = end_time - timedelta(days=20) # 20天數據,由於Pionex API不支援startTime，使用此方法取得應取startTime效果
     end_time_ms = int(end_time.timestamp() * 1000)
     start_time_ms = int(start_time.timestamp() * 1000)
     endpoint = 'https://api.pionex.com/api/v1/market/klines'
@@ -23,7 +31,7 @@ def get_recent_klines(symbol, interval, update_progress, total_requests):
                 data = response.json()
                 klines = data.get('data', {}).get('klines', [])
                 if not klines:
-                    print(f"No more data available after {request_count} requests.")
+                    print(f"在執行{request_count}次請求後，無更多數據可用。")
                     break
                 all_klines.extend(klines)
                 last_time_ms = int(klines[-1]['time'])
@@ -31,15 +39,15 @@ def get_recent_klines(symbol, interval, update_progress, total_requests):
                 params['endTime'] = end_time_ms
                 update_progress(request_count + 1)
             else:
-                print(f"Request failed with status code {response.status_code}: {response.text}")
+                print(f"請求失敗，狀態碼 {response.status_code}: {response.text}")
                 break
 
             if last_time_ms <= start_time_ms:
-                print("Reached the start of the data range.")
+                print("已達到數據範圍的開始。")
                 break
 
         except RequestException as e:
-            print(f"An error occurred: {e}")
+            print(f"發生錯誤：{e}")
             break
 
     if all_klines:
@@ -52,8 +60,12 @@ def get_recent_klines(symbol, interval, update_progress, total_requests):
         return df
     else:
         return pd.DataFrame()
-    
+
 def validate_data(df):
+    """
+    驗證數據的完整性和連續性。
+    :param df: 待驗證的DataFrame
+    """
     # 檢查缺失值
     missing_values = df.isnull().sum()
     print("檢查缺失值:\n", missing_values)
@@ -71,7 +83,13 @@ def validate_data(df):
     print(df[['open', 'high', 'low', 'close', 'volume']].describe())
 
 def calculate_bollinger_bands(data, window=20, num_std=2):
-    # 計算布林帶
+    """
+    計算布林帶。
+    :param data: 包含收盤價的DataFrame
+    :param window: 平均線窗口大小
+    :param num_std: 標準差乘數
+    :return: 包含布林帶的DataFrame
+    """
     data['close'] = pd.to_numeric(data['close'], errors='coerce')
     data['Middle Band'] = data['close'].rolling(window=window).mean()
     data['Std Dev'] = data['close'].rolling(window=window).std()
@@ -80,10 +98,14 @@ def calculate_bollinger_bands(data, window=20, num_std=2):
     return data
 
 def bollinger_strategy(bollinger_bands_df):
-    # 布林帶交易策略
+    """
+    執行布林帶交易策略。
+    :param bollinger_bands_df: 包含布林帶的DataFrame
+    :return: 交易信號的DataFrame
+    """
     signals = pd.DataFrame(index=bollinger_bands_df.index)
-    signals['signals'] = 0
-    state = 0
+    signals['signals'] = 0 #1為購買訊號，-1為賣出訊號
+    state = 0 #該變數僅作為當前狀態判對，並不發送訊號
     for i in range(len(bollinger_bands_df)):
         if bollinger_bands_df.loc[i, 'close'] < bollinger_bands_df.loc[i, 'Lower Band'] and state != 1:
             signals.loc[i, 'signals'] = 1
@@ -95,7 +117,13 @@ def bollinger_strategy(bollinger_bands_df):
     return signals
 
 def simulate_bollinger_strategy(bollinger_bands_df, signals, initial_capital=10000.0):
-    # 模擬布林帶策略交易
+    """
+    模擬布林帶策略交易。
+    :param bollinger_bands_df: 包含布林帶的DataFrame
+    :param signals: 交易信號的DataFrame
+    :param initial_capital: 初始資本
+    :return: 交易組合的DataFrame
+    """
     portfolio = pd.DataFrame(index=bollinger_bands_df.index)
     portfolio['holdings'] = 0.0
     portfolio['cash'] = initial_capital
@@ -125,6 +153,13 @@ def simulate_bollinger_strategy(bollinger_bands_df, signals, initial_capital=100
     return portfolio
 
 def main(cbb_value, update_progress=None, plot_callback=None):
+    """
+    主函數，初始化和執行所有流程。
+    :param cbb_value: K線間隔選擇
+    :param update_progress: 進度更新的回調函數
+    :param plot_callback: 繪圖的回調函數
+    :return: 最終的交易組合DataFrame
+    """
     if cbb_value not in ["1M","5M","15M","30M","60M","4H","8H","12H","1D"]:
         cbb_value = '15M'
     symbol = 'BTC_USDT'
@@ -138,7 +173,7 @@ def main(cbb_value, update_progress=None, plot_callback=None):
     bollinger_bands_df = calculate_bollinger_bands(klines_df)
     bollinger_bands_df = bollinger_bands_df.reset_index(drop=True)
     if plot_callback:
-        plot_callback(bollinger_bands_df) #通過回調函數傳遞繪製圖表數據
+        plot_callback(bollinger_bands_df)  # 通過回調函數傳遞繪製圖表數據
     signals = bollinger_strategy(bollinger_bands_df)
     portfolio = simulate_bollinger_strategy(bollinger_bands_df, signals)
     
